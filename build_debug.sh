@@ -4,7 +4,9 @@
 # There is no hot reloading and no separate game library.
 
 OUT_DIR="build/debug"
+SRC_DIR=source
+
 mkdir -p "$OUT_DIR"
-odin build source/main_release -out:$OUT_DIR/game_debug.bin -strict-style -vet -debug
+odin build "$SRC_DIR/main_release" -out:$OUT_DIR/game_debug.bin -strict-style -vet -debug
 cp -R assets $OUT_DIR
 echo "Debug build created in $OUT_DIR"

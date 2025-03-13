@@ -1,10 +1,16 @@
 @echo off
 
+:: This builds the game with hot reload support. It compiles the game DLL and the main executable,
+:: manages PDB files for debugging, and handles the hot reloading process. It also checks for the Raylib DLL
+:: and copies it if necessary.
+
 set GAME_RUNNING=false
 
 :: OUT_DIR is for everything except the exe. The exe needs to stay in root
 :: folder so it sees the assets folder, without having to copy it.
 set OUT_DIR=build\hot_reload
+set SRC_DIR=source
+
 set GAME_PDBS_DIR=%OUT_DIR%\game_pdbs
 
 set EXE=game_hot_reload.exe
@@ -40,14 +46,14 @@ echo %PDB_NUMBER% > %GAME_PDBS_DIR%\pdb_number
 :: Debuggers tend to lock PDBs or just misbehave if you reuse the same PDB while
 :: the debugger is attached. So each time we compile `game.dll` we give the
 :: PDB a unique PDB.
-:: 
+::
 :: Note that we could not just rename the PDB after creation; the DLL contains a
 :: reference to where the PDB is.
 ::
 :: Also note that we always write game.dll to the same file. game_hot_reload.exe
 :: monitors this file and does the hot reload when it changes.
 echo Building game.dll
-odin build source -strict-style -vet -debug -define:RAYLIB_SHARED=true -build-mode:dll -out:%OUT_DIR%/game.dll -pdb-name:%GAME_PDBS_DIR%\game_%PDB_NUMBER%.pdb > nul
+odin build %SRC_DIR% -strict-style -vet -debug -define:RAYLIB_SHARED=true -build-mode:dll -out:%OUT_DIR%/game.dll -pdb-name:%GAME_PDBS_DIR%\game_%PDB_NUMBER%.pdb > nul
 IF %ERRORLEVEL% NEQ 0 exit /b 1
 
 :: If game.exe already running: Then only compile game.dll and exit cleanly
@@ -57,7 +63,7 @@ if %GAME_RUNNING% == true (
 
 :: Build game.exe, which starts the program and loads game.dll och does the logic for hot reloading.
 echo Building %EXE%
-odin build source\main_hot_reload -strict-style -vet -debug -out:%EXE% -pdb-name:%OUT_DIR%\main_hot_reload.pdb
+odin build %SRC_DIR%\main_hot_reload -strict-style -vet -debug -out:%EXE% -pdb-name:%OUT_DIR%\main_hot_reload.pdb
 IF %ERRORLEVEL% NEQ 0 exit /b 1
 
 set ODIN_PATH=
