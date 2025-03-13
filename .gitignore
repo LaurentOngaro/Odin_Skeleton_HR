@@ -6,6 +6,8 @@ bin/
 _priv/
 _logs/
 
+### Private ###
+.private/
 ### Editors ###
 #.vscode
 #.idea
