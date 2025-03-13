@@ -37,11 +37,17 @@ CELL_SIZE :: 16
 CANVAS_SIZE :: GRID_WIDTH * CELL_SIZE
 
 TICK_RATE :: 0.13
-Vec2i :: [2]int
 MAX_SNAKE_LENGTH :: GRID_WIDTH * GRID_WIDTH
+IS_WASM :: ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32
+
+Vec2i :: [2]int
+
+CRASH_SOUND :: #load("../sounds/death.wav")
+EAT_SOUND :: #load("../sounds/eat.wav")
 
 Game_Memory :: struct {
   run:            bool,
+  font:           rl.Font,
   snake:          [MAX_SNAKE_LENGTH]Vec2i,
   snake_length:   int,
   tick_timer:     f32,
@@ -57,13 +63,59 @@ Game_Memory :: struct {
 }
 
 g_mem: ^Game_Memory
+font: rl.Font
 
-game_camera :: proc() -> rl.Camera2D {
-  return {zoom = f32(WINDOW_SIZE) / CANVAS_SIZE}
+refresh_globals :: proc() {
+  // Here you can also set your own global variables. A good idea is to make
+  // your global variables into pointers that point to something inside
+  // `g_mem`.
+  font = g_mem.font
 }
 
-ui_camera :: proc() -> rl.Camera2D {
-  return {zoom = f32(WINDOW_SIZE) / CANVAS_SIZE}
+init :: proc() {
+  g_mem = new(Game_Memory)
+
+  g_mem^ = Game_Memory {
+    run         = true,
+    tick_timer  = TICK_RATE,
+    food_sprite = rl.LoadTexture("assets/food_16.png"),
+    head_sprite = rl.LoadTexture("assets/head_16.png"),
+    body_sprite = rl.LoadTexture("assets/body_16.png"),
+    tail_sprite = rl.LoadTexture("assets/tail_16.png"),
+    //eat_sound   = rl.LoadSound("assets/eat.mp3"),
+    //crash_sound = rl.LoadSound("assets/death.mp3"),
+    eat_sound   = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(EAT_SOUND), i32(len(EAT_SOUND)))),
+    crash_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(CRASH_SOUND), i32(len(CRASH_SOUND)))),
+  }
+  rl.SetSoundVolume(g_mem.eat_sound, 0.5)
+  rl.SetSoundVolume(g_mem.crash_sound, 0.5)
+
+  restart()
+
+  game_hot_reloaded(g_mem)
+}
+
+init_window :: proc() {
+  flags: rl.ConfigFlags
+
+  when ODIN_DEBUG {
+    flags = {.WINDOW_RESIZABLE, .VSYNC_HINT}
+  } else {
+    flags = {.VSYNC_HINT}
+  }
+
+  when IS_WASM {
+    flags += {.WINDOW_RESIZABLE}
+  }
+  rl.SetConfigFlags(flags)
+  rl.InitWindow(WINDOW_SIZE, WINDOW_SIZE, "Snake HR")
+  rl.SetWindowPosition(200, 200)
+  rl.SetTargetFPS(500)
+  rl.InitAudioDevice()
+  when !ODIN_DEBUG && !IS_WASM {
+    rl.ToggleBorderlessWindowed()
+  }
+  rl.SetExitKey(.KEY_NULL)
 }
 
 update :: proc() {
@@ -191,57 +243,7 @@ draw :: proc() {
   rl.EndDrawing()
 }
 
-@(export)
-game_update :: proc() {
-  update()
-  draw()
-}
-
-@(export)
-game_init_window :: proc() {
-  rl.SetConfigFlags({.VSYNC_HINT})
-  rl.InitWindow(WINDOW_SIZE, WINDOW_SIZE, "Snake HR")
-  rl.InitAudioDevice()
-
-  rl.SetWindowPosition(200, 200)
-  rl.SetTargetFPS(500)
-  rl.SetExitKey(nil)
-}
-
-@(export)
-game_init :: proc() {
-  g_mem = new(Game_Memory)
-
-  g_mem^ = Game_Memory {
-    run         = true,
-    tick_timer  = TICK_RATE,
-    food_sprite = rl.LoadTexture("assets/textures/food_16.png"),
-    head_sprite = rl.LoadTexture("assets/textures/head_16.png"),
-    body_sprite = rl.LoadTexture("assets/textures/body_16.png"),
-    tail_sprite = rl.LoadTexture("assets/textures/tail_16.png"),
-    eat_sound   = rl.LoadSound("assets/sounds/eat.mp3"),
-    crash_sound = rl.LoadSound("assets/sounds/death.mp3"),
-  }
-
-  restart()
-
-  game_hot_reloaded(g_mem)
-}
-
-@(export)
-game_should_run :: proc() -> bool {
-  when ODIN_OS != .JS {
-    // Never run this proc in browser. It contains a 16 ms sleep on web!
-    if rl.WindowShouldClose() {
-      return false
-    }
-  }
-
-  return g_mem.run
-}
-
-@(export)
-game_shutdown :: proc() {
+shutdown :: proc() {
   rl.UnloadTexture(g_mem.head_sprite)
   rl.UnloadTexture(g_mem.food_sprite)
   rl.UnloadTexture(g_mem.body_sprite)
@@ -253,45 +255,23 @@ game_shutdown :: proc() {
   free(g_mem)
 }
 
-@(export)
-game_shutdown_window :: proc() {
+shutdown_window :: proc() {
   rl.CloseAudioDevice()
   rl.CloseWindow()
-}
-
-@(export)
-game_memory :: proc() -> rawptr {
-  return g_mem
-}
-
-@(export)
-game_memory_size :: proc() -> int {
-  return size_of(Game_Memory)
-}
-
-@(export)
-game_hot_reloaded :: proc(mem: rawptr) {
-  g_mem = (^Game_Memory)(mem)
-
-  // Here you can also set your own global variables. A good idea is to make
-  // your global variables into pointers that point to something inside
-  // `g_mem`.
-}
-
-@(export)
-game_force_reload :: proc() -> bool {
-  return rl.IsKeyPressed(.F5)
-}
-
-@(export)
-game_force_restart :: proc() -> bool {
-  return rl.IsKeyPressed(.F6)
 }
 
 // In a web build, this is called when browser changes size. Remove the
 // `rl.SetWindowSize` call if you don't want a resizable game.
 game_parent_window_size_changed :: proc(w, h: int) {
   rl.SetWindowSize(i32(w), i32(h))
+}
+
+game_camera :: proc() -> rl.Camera2D {
+  return {zoom = f32(WINDOW_SIZE) / CANVAS_SIZE}
+}
+
+ui_camera :: proc() -> rl.Camera2D {
+  return {zoom = f32(WINDOW_SIZE) / CANVAS_SIZE}
 }
 
 place_food :: proc() {
