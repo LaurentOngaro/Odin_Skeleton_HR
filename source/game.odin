@@ -28,51 +28,102 @@ created.
 package game
 
 import "core:fmt"
-import "core:math/linalg"
+import "core:math"
 import rl "vendor:raylib"
 
-PIXEL_WINDOW_HEIGHT :: 180
+WINDOW_SIZE :: 1000
+GRID_WIDTH :: 20
+CELL_SIZE :: 16
+CANVAS_SIZE :: GRID_WIDTH * CELL_SIZE
+
+TICK_RATE :: 0.13
+Vec2i :: [2]int
+MAX_SNAKE_LENGTH :: GRID_WIDTH * GRID_WIDTH
 
 Game_Memory :: struct {
-  player_pos:     rl.Vector2,
-  player_texture: rl.Texture,
-  some_number:    int,
   run:            bool,
+  snake:          [MAX_SNAKE_LENGTH]Vec2i,
+  snake_length:   int,
+  tick_timer:     f32,
+  move_direction: Vec2i,
+  game_over:      bool,
+  food_pos:       Vec2i,
+  food_sprite:    rl.Texture,
+  head_sprite:    rl.Texture,
+  body_sprite:    rl.Texture,
+  tail_sprite:    rl.Texture,
+  eat_sound:      rl.Sound,
+  crash_sound:    rl.Sound,
 }
 
 g_mem: ^Game_Memory
 
 game_camera :: proc() -> rl.Camera2D {
-  w := f32(rl.GetScreenWidth())
-  h := f32(rl.GetScreenHeight())
-
-  return {zoom = h / PIXEL_WINDOW_HEIGHT, target = g_mem.player_pos, offset = {w / 2, h / 2}}
+  return {zoom = f32(WINDOW_SIZE) / CANVAS_SIZE}
 }
 
 ui_camera :: proc() -> rl.Camera2D {
-  return {zoom = f32(rl.GetScreenHeight()) / PIXEL_WINDOW_HEIGHT}
+  return {zoom = f32(WINDOW_SIZE) / CANVAS_SIZE}
 }
 
 update :: proc() {
-  input: rl.Vector2
-
-  if rl.IsKeyDown(.UP) || rl.IsKeyDown(.W) {
-    input.y -= 1
-  }
-  if rl.IsKeyDown(.DOWN) || rl.IsKeyDown(.S) {
-    input.y += 1
-  }
-  if rl.IsKeyDown(.LEFT) || rl.IsKeyDown(.A) {
-    input.x -= 1
-  }
-  if rl.IsKeyDown(.RIGHT) || rl.IsKeyDown(.D) {
-    input.x += 1
+  if rl.IsKeyDown(.UP) {
+    g_mem.move_direction = {0, -1}
   }
 
-  input = linalg.normalize0(input)
-  g_mem.player_pos += input * rl.GetFrameTime() * 100
-  g_mem.some_number += 1
+  if rl.IsKeyDown(.DOWN) {
+    g_mem.move_direction = {0, 1}
+  }
 
+  if rl.IsKeyDown(.LEFT) {
+    g_mem.move_direction = {-1, 0}
+  }
+
+  if rl.IsKeyDown(.RIGHT) {
+    g_mem.move_direction = {1, 0}
+  }
+
+  if g_mem.game_over {
+    if rl.IsKeyPressed(.ENTER) {
+      restart()
+    }
+  } else {
+    g_mem.tick_timer -= rl.GetFrameTime()
+  }
+
+  if g_mem.tick_timer <= 0 {
+    next_part_pos := g_mem.snake[0]
+    g_mem.snake[0] += g_mem.move_direction
+    head_pos := g_mem.snake[0]
+
+    if head_pos.x < 0 || head_pos.y < 0 || head_pos.x >= GRID_WIDTH || head_pos.y >= GRID_WIDTH {
+      g_mem.game_over = true
+      rl.PlaySound(g_mem.crash_sound)
+    }
+
+    for i in 1 ..< g_mem.snake_length {
+      cur_pos := g_mem.snake[i]
+
+      if cur_pos == head_pos {
+        g_mem.game_over = true
+        rl.PlaySound(g_mem.crash_sound)
+      }
+
+      g_mem.snake[i] = next_part_pos
+      next_part_pos = cur_pos
+    }
+
+    if head_pos == g_mem.food_pos {
+      g_mem.snake_length += 1
+      g_mem.snake[g_mem.snake_length - 1] = next_part_pos
+      place_food()
+      rl.PlaySound(g_mem.eat_sound)
+    }
+
+    g_mem.tick_timer = TICK_RATE + g_mem.tick_timer
+  }
+
+  // Quit the game
   if rl.IsKeyPressed(.ESCAPE) {
     g_mem.run = false
   }
@@ -80,22 +131,62 @@ update :: proc() {
 
 draw :: proc() {
   rl.BeginDrawing()
-  rl.ClearBackground(rl.BLACK)
 
-  rl.BeginMode2D(game_camera())
-  rl.DrawTextureEx(g_mem.player_texture, g_mem.player_pos, 0, 1, rl.WHITE)
-  rl.DrawRectangleV({20, 20}, {10, 10}, rl.RED)
-  rl.DrawRectangleV({-30, -20}, {10, 10}, rl.GREEN)
-  rl.EndMode2D()
+  // DRAW the game
+  {
+    rl.ClearBackground({76, 53, 83, 255})
+    rl.BeginMode2D(game_camera())
+    rl.DrawTextureV(g_mem.food_sprite, {f32(g_mem.food_pos.x), f32(g_mem.food_pos.y)} * CELL_SIZE, rl.WHITE)
 
-  rl.BeginMode2D(ui_camera())
+    for i in 0 ..< g_mem.snake_length {
+      part_sprite := g_mem.body_sprite
+      dir: Vec2i
 
-  // NOTE: `fmt.ctprintf` uses the temp allocator. The temp allocator is
-  // cleared at the end of the frame by the main application, meaning inside
-  // `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
-  rl.DrawText(fmt.ctprintf("some_number: %v\nplayer_pos: %v", g_mem.some_number, g_mem.player_pos), 5, 5, 8, rl.WHITE)
+      if i == 0 {
+        part_sprite = g_mem.head_sprite
+        dir = g_mem.snake[i] - g_mem.snake[i + 1]
+      } else if i == g_mem.snake_length - 1 {
+        part_sprite = g_mem.tail_sprite
+        dir = g_mem.snake[i - 1] - g_mem.snake[i]
+      } else {
+        dir = g_mem.snake[i - 1] - g_mem.snake[i]
+      }
 
-  rl.EndMode2D()
+      rot := math.atan2(f32(dir.y), f32(dir.x)) * math.DEG_PER_RAD
+
+      source := rl.Rectangle{0, 0, f32(part_sprite.width), f32(part_sprite.height)}
+
+      dest := rl.Rectangle {
+        f32(g_mem.snake[i].x) * CELL_SIZE + 0.5 * CELL_SIZE,
+        f32(g_mem.snake[i].y) * CELL_SIZE + 0.5 * CELL_SIZE,
+        CELL_SIZE,
+        CELL_SIZE,
+      }
+
+      rl.DrawTexturePro(part_sprite, source, dest, {CELL_SIZE, CELL_SIZE} * 0.5, rot, rl.WHITE)
+    }
+
+    rl.EndMode2D()
+  }
+
+  // DRAW the UI
+  {
+    rl.BeginMode2D(ui_camera())
+
+    // NOTE: `fmt.ctprintf` uses the temp allocator. The temp allocator is
+    // cleared at the end of the frame by the main application, meaning inside
+    // `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
+    if g_mem.game_over {
+      rl.DrawText("Game Over!", 4, 4, 25, rl.RED)
+      rl.DrawText("Press Enter to play again", 4, 30, 15, rl.BLACK)
+    }
+
+    score := g_mem.snake_length - 3
+    score_str := fmt.ctprintf("Score: %v", score)
+    rl.DrawText(score_str, 4, CANVAS_SIZE - 14, 10, rl.GRAY)
+
+    rl.EndMode2D()
+  }
 
   rl.EndDrawing()
 }
@@ -108,8 +199,10 @@ game_update :: proc() {
 
 @(export)
 game_init_window :: proc() {
-  rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
-  rl.InitWindow(1280, 720, "Odin Skeleton Hot Reload!")
+  rl.SetConfigFlags({.VSYNC_HINT})
+  rl.InitWindow(WINDOW_SIZE, WINDOW_SIZE, "Snake HR")
+  rl.InitAudioDevice()
+
   rl.SetWindowPosition(200, 200)
   rl.SetTargetFPS(500)
   rl.SetExitKey(nil)
@@ -120,13 +213,17 @@ game_init :: proc() {
   g_mem = new(Game_Memory)
 
   g_mem^ = Game_Memory {
-    run            = true,
-    some_number    = 100,
-
-    // You can put textures, sounds and music in the `assets` folder. Those
-    // files will be part any release or web build.
-    player_texture = rl.LoadTexture("assets/textures/round_cat.png"),
+    run         = true,
+    tick_timer  = TICK_RATE,
+    food_sprite = rl.LoadTexture("assets/textures/food_16.png"),
+    head_sprite = rl.LoadTexture("assets/textures/head_16.png"),
+    body_sprite = rl.LoadTexture("assets/textures/body_16.png"),
+    tail_sprite = rl.LoadTexture("assets/textures/tail_16.png"),
+    eat_sound   = rl.LoadSound("assets/sounds/eat.mp3"),
+    crash_sound = rl.LoadSound("assets/sounds/death.mp3"),
   }
+
+  restart()
 
   game_hot_reloaded(g_mem)
 }
@@ -145,11 +242,20 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
+  rl.UnloadTexture(g_mem.head_sprite)
+  rl.UnloadTexture(g_mem.food_sprite)
+  rl.UnloadTexture(g_mem.body_sprite)
+  rl.UnloadTexture(g_mem.tail_sprite)
+
+  rl.UnloadSound(g_mem.eat_sound)
+  rl.UnloadSound(g_mem.crash_sound)
+
   free(g_mem)
 }
 
 @(export)
 game_shutdown_window :: proc() {
+  rl.CloseAudioDevice()
   rl.CloseWindow()
 }
 
@@ -186,4 +292,38 @@ game_force_restart :: proc() -> bool {
 // `rl.SetWindowSize` call if you don't want a resizable game.
 game_parent_window_size_changed :: proc(w, h: int) {
   rl.SetWindowSize(i32(w), i32(h))
+}
+
+place_food :: proc() {
+  occupied: [GRID_WIDTH][GRID_WIDTH]bool
+
+  for i in 0 ..< g_mem.snake_length {
+    occupied[g_mem.snake[i].x][g_mem.snake[i].y] = true
+  }
+
+  free_cells := make([dynamic]Vec2i, context.temp_allocator)
+
+  for x in 0 ..< GRID_WIDTH {
+    for y in 0 ..< GRID_WIDTH {
+      if !occupied[x][y] {
+        append(&free_cells, Vec2i{x, y})
+      }
+    }
+  }
+
+  if len(free_cells) > 0 {
+    random_cell_index := rl.GetRandomValue(0, i32(len(free_cells) - 1))
+    g_mem.food_pos = free_cells[random_cell_index]
+  }
+}
+
+restart :: proc() {
+  start_head_pos := Vec2i{GRID_WIDTH / 2, GRID_WIDTH / 2}
+  g_mem.snake[0] = start_head_pos
+  g_mem.snake[1] = start_head_pos - {0, 1}
+  g_mem.snake[2] = start_head_pos - {0, 2}
+  g_mem.snake_length = 3
+  g_mem.move_direction = {0, 1}
+  g_mem.game_over = false
+  place_food()
 }

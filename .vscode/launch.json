@@ -32,8 +32,8 @@
     {
       "type": "node",
       "request": "launch",
-      "preLaunchTask": "Run Web",
-      "name": "Run Web Release (Windows)",
+      "preLaunchTask": "Build and Run Web",
+      "name": "Build and Run Web (Windows)",
       "args": [],
       "cwd": "${workspaceFolder}"
     },
@@ -69,8 +69,8 @@
     {
       "type": "node",
       "request": "launch",
-      "preLaunchTask": "Run Web",
-      "name": "Run Web Release (Linux / Mac)",
+      "preLaunchTask": "Build and Run Web",
+      "name": "Build and Run Web (Linux / Mac)",
       "args": [],
       "cwd": "${workspaceFolder}"
     }

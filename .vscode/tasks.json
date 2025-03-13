@@ -82,6 +82,12 @@
         "kind": "build",
         "isDefault": true
       }
+    },
+    {
+      "label": "Build and Run Web",
+      "dependsOn": ["Build Web", "Run Web"],
+      "dependsOrder": "sequence", // Exécute les tâches dans l'ordre
+      "problemMatcher": []
     }
   ]
 }
