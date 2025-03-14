@@ -192,7 +192,7 @@ Called by the game_update proc in the api.odin file.
 draw :: proc() {
   rl.BeginDrawing()
 
-  // DRAW the game
+  // Draw the game
   // ------------
   {
     rl.ClearBackground({83, 83, 83, 255})
@@ -212,7 +212,7 @@ draw :: proc() {
     rl.EndMode2D()
   }
 
-  // DRAW the UI
+  // Draw the UI
   // ------------
   {
     rl.BeginMode2D(ui_camera())
@@ -234,7 +234,7 @@ draw :: proc() {
   rl.EndDrawing()
 } // draw
 
-/* Shuts down game and frees memory
+/* Shut down game and free memory
 Called by the game_should_run proc in the api.odin file.
 */
 shutdown :: proc() {
@@ -254,7 +254,7 @@ shutdown_window :: proc() {
 } // shutdown_window
 
 /* Create a camera for the game
-Returns:
+Return:
   - a camera
 */
 game_camera :: proc() -> rl.Camera2D {
@@ -262,14 +262,14 @@ game_camera :: proc() -> rl.Camera2D {
 } // game_camera
 
 /* Create a camera for the UI
-Returns:
+Return:
   - a camera
 */
 ui_camera :: proc() -> rl.Camera2D {
   return {zoom = f32(WINDOW_SIZE) / CANVAS_SIZE}
 } // ui_camera
 
-/* Restarts the game and sets the initial state of the snake and food.*/
+/* Restart the game and sets the initial state.*/
 restart :: proc() {
   g_mem.player_pos = Vec2i{GRID_WIDTH / 2, GRID_WIDTH / 2}
   g_mem.score = 0

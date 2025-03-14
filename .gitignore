@@ -1,13 +1,16 @@
 ### Odin ###
-_refs/
 build/
 out/
 bin/
-_priv/
-_logs/
+
+# the folowings folders have a .gitignore file instead
+#_refs/
+#_logs/
+#_raw/
 
 ### Private ###
 .private/
+
 ### Editors ###
 #.vscode
 #.idea
