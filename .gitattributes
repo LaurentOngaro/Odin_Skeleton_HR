@@ -1,4 +1,4 @@
-* text=auto eol=lf
+* text=auto 
 *.o binary
 *.a binary
 *.dylib binary
