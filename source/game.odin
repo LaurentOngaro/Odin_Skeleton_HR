@@ -28,7 +28,6 @@ created.
 package game
 
 import "core:fmt"
-import "core:math"
 import rl "vendor:raylib"
 
 /* =========
@@ -38,17 +37,14 @@ WINDOW_SIZE :: 1000
 GRID_WIDTH :: 20
 CELL_SIZE :: 16
 CANVAS_SIZE :: GRID_WIDTH * CELL_SIZE
-
 TICK_RATE :: 0.13
-MAX_SNAKE_LENGTH :: GRID_WIDTH * GRID_WIDTH
 IS_WASM :: ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32
 
 // NOTES (1):
 // Directly loading using rl.LoadSound doesn't work on web, propably because of relative path issues.
 // It seems that only textures can be loaded from the assets folder.
 // TODO: Ask Karl about this (or the discord)
-CRASH_SOUND :: #load("../sounds/death.wav")
-EAT_SOUND :: #load("../sounds/eat.wav")
+DEATH_SOUND :: #load("../sounds/death.wav")
 
 /* =========
 Structs and Enums
@@ -64,18 +60,13 @@ when all the game's memory live in here. */
 Game_Memory :: struct {
   run:            bool,
   font:           rl.Font,
-  snake:          [MAX_SNAKE_LENGTH]Vec2i,
-  snake_length:   int,
+  player_pos:     Vec2i,
+  score:          int,
   tick_timer:     f32,
   move_direction: Vec2i,
   game_over:      bool,
-  food_pos:       Vec2i,
-  food_sprite:    rl.Texture,
-  head_sprite:    rl.Texture,
-  body_sprite:    rl.Texture,
-  tail_sprite:    rl.Texture,
-  eat_sound:      rl.Sound,
-  crash_sound:    rl.Sound,
+  player_texture: rl.Texture,
+  death_sound:    rl.Sound,
 }
 
 /* =========
@@ -109,21 +100,15 @@ init :: proc() {
   g_mem = new(Game_Memory)
 
   g_mem^ = Game_Memory {
-    run         = true,
-    tick_timer  = TICK_RATE,
+    run            = true,
+    tick_timer     = TICK_RATE,
     // Textures
-    food_sprite = rl.LoadTexture("assets/food_16.png"),
-    head_sprite = rl.LoadTexture("assets/head_16.png"),
-    body_sprite = rl.LoadTexture("assets/body_16.png"),
-    tail_sprite = rl.LoadTexture("assets/tail_16.png"),
+    player_texture = rl.LoadTexture("assets/player.png"),
     // Sounds
-    // eat_sound   = rl.LoadSound("sounds/eat.wav"), // See NOTES (1)
-    // crash_sound = rl.LoadSound("sounds/death.wav"), // See NOTES (1)
-    eat_sound   = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(EAT_SOUND), i32(len(EAT_SOUND)))),
-    crash_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(CRASH_SOUND), i32(len(CRASH_SOUND)))),
+    // death_sound = rl.LoadSound("sounds/death.wav"), // See NOTES (1)
+    death_sound    = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(DEATH_SOUND), i32(len(DEATH_SOUND)))),
   }
-  rl.SetSoundVolume(g_mem.eat_sound, 0.5)
-  rl.SetSoundVolume(g_mem.crash_sound, 0.5)
+  rl.SetSoundVolume(g_mem.death_sound, 0.5)
 
   restart()
 
@@ -146,7 +131,7 @@ init_window :: proc() {
     flags += {.WINDOW_RESIZABLE}
   }
   rl.SetConfigFlags(flags)
-  rl.InitWindow(WINDOW_SIZE, WINDOW_SIZE, "Snake HR")
+  rl.InitWindow(WINDOW_SIZE, WINDOW_SIZE, "Odin Skeleton HR")
   rl.SetWindowPosition(200, 200)
   rl.SetTargetFPS(500)
   rl.InitAudioDevice()
@@ -185,32 +170,11 @@ update :: proc() {
   }
 
   if g_mem.tick_timer <= 0 {
-    next_part_pos := g_mem.snake[0]
-    g_mem.snake[0] += g_mem.move_direction
-    head_pos := g_mem.snake[0]
+    g_mem.player_pos += g_mem.move_direction
 
-    if head_pos.x < 0 || head_pos.y < 0 || head_pos.x >= GRID_WIDTH || head_pos.y >= GRID_WIDTH {
+    if g_mem.player_pos.x < 0 || g_mem.player_pos.y < 0 || g_mem.player_pos.x >= GRID_WIDTH || g_mem.player_pos.y >= GRID_WIDTH {
       g_mem.game_over = true
-      rl.PlaySound(g_mem.crash_sound)
-    }
-
-    for i in 1 ..< g_mem.snake_length {
-      cur_pos := g_mem.snake[i]
-
-      if cur_pos == head_pos {
-        g_mem.game_over = true
-        rl.PlaySound(g_mem.crash_sound)
-      }
-
-      g_mem.snake[i] = next_part_pos
-      next_part_pos = cur_pos
-    }
-
-    if head_pos == g_mem.food_pos {
-      g_mem.snake_length += 1
-      g_mem.snake[g_mem.snake_length - 1] = next_part_pos
-      place_food()
-      rl.PlaySound(g_mem.eat_sound)
+      rl.PlaySound(g_mem.death_sound)
     }
 
     g_mem.tick_timer = TICK_RATE + g_mem.tick_timer
@@ -231,37 +195,19 @@ draw :: proc() {
   // DRAW the game
   // ------------
   {
-    rl.ClearBackground({76, 53, 83, 255})
+    rl.ClearBackground({83, 83, 83, 255})
     rl.BeginMode2D(game_camera())
-    rl.DrawTextureV(g_mem.food_sprite, {f32(g_mem.food_pos.x), f32(g_mem.food_pos.y)} * CELL_SIZE, rl.WHITE)
 
-    for i in 0 ..< g_mem.snake_length {
-      part_sprite := g_mem.body_sprite
-      dir: Vec2i
+    source := rl.Rectangle{0, 0, f32(g_mem.player_texture.width), f32(g_mem.player_texture.height)}
 
-      if i == 0 {
-        part_sprite = g_mem.head_sprite
-        dir = g_mem.snake[i] - g_mem.snake[i + 1]
-      } else if i == g_mem.snake_length - 1 {
-        part_sprite = g_mem.tail_sprite
-        dir = g_mem.snake[i - 1] - g_mem.snake[i]
-      } else {
-        dir = g_mem.snake[i - 1] - g_mem.snake[i]
-      }
-
-      rot := math.atan2(f32(dir.y), f32(dir.x)) * math.DEG_PER_RAD
-
-      source := rl.Rectangle{0, 0, f32(part_sprite.width), f32(part_sprite.height)}
-
-      dest := rl.Rectangle {
-        f32(g_mem.snake[i].x) * CELL_SIZE + 0.5 * CELL_SIZE,
-        f32(g_mem.snake[i].y) * CELL_SIZE + 0.5 * CELL_SIZE,
-        CELL_SIZE,
-        CELL_SIZE,
-      }
-
-      rl.DrawTexturePro(part_sprite, source, dest, {CELL_SIZE, CELL_SIZE} * 0.5, rot, rl.WHITE)
+    dest := rl.Rectangle {
+      f32(g_mem.player_pos.x) * CELL_SIZE + 0.5 * CELL_SIZE,
+      f32(g_mem.player_pos.y) * CELL_SIZE + 0.5 * CELL_SIZE,
+      CELL_SIZE,
+      CELL_SIZE,
     }
+
+    rl.DrawTexturePro(g_mem.player_texture, source, dest, {CELL_SIZE, CELL_SIZE} * 0.5, 0, rl.WHITE)
 
     rl.EndMode2D()
   }
@@ -279,8 +225,7 @@ draw :: proc() {
       rl.DrawText("Press Enter to play again", 4, 30, 15, rl.BLACK)
     }
 
-    score := g_mem.snake_length - 3
-    score_str := fmt.ctprintf("Score: %v", score)
+    score_str := fmt.ctprintf("Score: %v", g_mem.score)
     rl.DrawText(score_str, 4, CANVAS_SIZE - 14, 10, rl.GRAY)
 
     rl.EndMode2D()
@@ -293,13 +238,9 @@ draw :: proc() {
 Called by the game_should_run proc in the api.odin file.
 */
 shutdown :: proc() {
-  rl.UnloadTexture(g_mem.head_sprite)
-  rl.UnloadTexture(g_mem.food_sprite)
-  rl.UnloadTexture(g_mem.body_sprite)
-  rl.UnloadTexture(g_mem.tail_sprite)
+  rl.UnloadTexture(g_mem.player_texture)
 
-  rl.UnloadSound(g_mem.eat_sound)
-  rl.UnloadSound(g_mem.crash_sound)
+  rl.UnloadSound(g_mem.death_sound)
 
   free(g_mem)
 } // shutdown
@@ -328,41 +269,10 @@ ui_camera :: proc() -> rl.Camera2D {
   return {zoom = f32(WINDOW_SIZE) / CANVAS_SIZE}
 } // ui_camera
 
-/* Places the food in a random location
-Returns:
-  - position of the food
-*/
-place_food :: proc() {
-  occupied: [GRID_WIDTH][GRID_WIDTH]bool
-
-  for i in 0 ..< g_mem.snake_length {
-    occupied[g_mem.snake[i].x][g_mem.snake[i].y] = true
-  }
-
-  free_cells := make([dynamic]Vec2i, context.temp_allocator)
-
-  for x in 0 ..< GRID_WIDTH {
-    for y in 0 ..< GRID_WIDTH {
-      if !occupied[x][y] {
-        append(&free_cells, Vec2i{x, y})
-      }
-    }
-  }
-
-  if len(free_cells) > 0 {
-    random_cell_index := rl.GetRandomValue(0, i32(len(free_cells) - 1))
-    g_mem.food_pos = free_cells[random_cell_index]
-  }
-} // place_food
-
 /* Restarts the game and sets the initial state of the snake and food.*/
 restart :: proc() {
-  start_head_pos := Vec2i{GRID_WIDTH / 2, GRID_WIDTH / 2}
-  g_mem.snake[0] = start_head_pos
-  g_mem.snake[1] = start_head_pos - {0, 1}
-  g_mem.snake[2] = start_head_pos - {0, 2}
-  g_mem.snake_length = 3
-  g_mem.move_direction = {0, 1}
+  g_mem.player_pos = Vec2i{GRID_WIDTH / 2, GRID_WIDTH / 2}
+  g_mem.score = 0
+  g_mem.move_direction = {0, -1}
   g_mem.game_over = false
-  place_food()
 } // restart
